@@ -249,10 +249,10 @@ assert.match(vpnExtensionSource, /address: '0\.0\.0\.0'/);
 assert.match(vpnExtensionSource, /prefixLength: 0/);
 assert.match(vpnExtensionSource, /isDefaultRoute: true/);
 assert.match(vpnExtensionSource, /isIPv6Accepted: false/);
-assert.match(runtimeConfigSource, /connection\.getAddressesByName\(host\)/);
-assert.match(runtimeConfigSource, /collectProxyServerHosts/);
-assert.match(runtimeConfigSource, /buildHostsBlock/);
-assert.match(runtimeConfigSource, /'  use-hosts: true'/);
+assert.match(runtimeConfigSource, /'  use-hosts: false'/);
+assert.doesNotMatch(runtimeConfigSource.match(/private static async normalize[\s\S]*?return `\$\{sections\.join/)?.[0] ?? '', /buildHostsBlock|resolveProxyServerHosts/);
+assert.match(adapterSource, /auto-detect-interface: true/);
+assert.match(indexSource, /autoSelectReachableProxyAfterSpeedTest/);
 assert.match(coreBridgeSource, /import nativeCore from 'libentry\.so'/);
 assert.match(coreBridgeSource, /nativeFd: number/);
 assert.match(coreBridgeSource, /coreMode: string/);
@@ -608,10 +608,11 @@ assert.ok(runtime.includes('allow-lan: false'));
 assert.ok(runtime.includes('ipv6: false'));
 assert.ok(runtime.includes('mode: rule'));
 assert.ok(runtime.includes('external-controller: 127.0.0.1:9090'));
-assert.ok(runtime.includes('hosts:\n  \'node.example.com\': \'203.0.113.10\''));
-assert.ok(runtime.includes('  \'inline.example.com\': \'203.0.113.11\''));
+assert.ok(!runtime.includes('\nhosts:\n'));
+assert.ok(!runtime.includes('203.0.113.10'));
+assert.ok(!runtime.includes('203.0.113.11'));
 assert.ok(runtime.includes('dns:\n  enable: true'));
-assert.ok(runtime.includes('  use-hosts: true'));
+assert.ok(runtime.includes('  use-hosts: false'));
 assert.ok(runtime.includes('  enhanced-mode: redir-host'));
 assert.ok(runtime.includes('  proxy-server-nameserver:'));
 assert.ok(runtime.includes('proxy-groups:'));
@@ -741,7 +742,6 @@ function cleanValue(value) {
 function normalize(text, hostMap = new Map()) {
   const stripped = removeManagedTopLevelKeys(text);
   const base = trimTrailingWhitespace(stripped);
-  const hosts = buildHostsBlock(collectProxyServerHosts(stripped), hostMap);
   const managed = [
     'mixed-port: 7890',
     'allow-lan: false',
@@ -756,7 +756,7 @@ function normalize(text, hostMap = new Map()) {
     '  enable: true',
     '  listen: 127.0.0.1:1053',
     '  ipv6: false',
-    '  use-hosts: true',
+    '  use-hosts: false',
     '  enhanced-mode: redir-host',
     '  default-nameserver:',
     '    - 223.5.5.5',
@@ -770,9 +770,6 @@ function normalize(text, hostMap = new Map()) {
     '    - 119.29.29.29'
   ];
   const sections = [base, managed.join('\n'), dns.join('\n')];
-  if (hosts.length > 0) {
-    sections.splice(1, 0, hosts.join('\n'));
-  }
   return `${sections.join('\n\n')}\n`;
 }
 

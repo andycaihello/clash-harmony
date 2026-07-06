@@ -2151,6 +2151,7 @@ struct Index {
       this.speedTestSummary = '测速完成 ' + tested + '/' + targetIndexes.length + ' · ' + reachable + ' 可达 · ' + timeout + ' timeout';
       this.speedTestProgress = this.speedTestSummary;
       this.statusMessage = '测速完成: ' + tested + ' 个节点, ' + reachable + ' 可达';
+      await this.autoSelectReachableProxyAfterSpeedTest();
     } finally {
       this.isSpeedTesting = false;
     }
@@ -2169,6 +2170,68 @@ struct Index {
 
     const result: ControllerTextResult = await MihomoControllerService.testDelay(node.name, 5000);
     return this.parseControllerDelay(result);
+  }
+
+  private async autoSelectReachableProxyAfterSpeedTest(): Promise<void> {
+    const selectedName: string = this.getSelectedProxyNodeName();
+    let selectedReachable: boolean = false;
+    let bestNode: ProxyNode | undefined = undefined;
+    let bestDelay: number = 0;
+
+    for (let index = 0; index < this.proxyNodes.length; index++) {
+      const node: ProxyNode = this.proxyNodes[index];
+      const delay: number = this.parseDelayText(node.delay);
+      if (delay <= 0) {
+        continue;
+      }
+      if (node.name === selectedName) {
+        selectedReachable = true;
+      }
+      if (!bestNode || delay < bestDelay) {
+        bestNode = node;
+        bestDelay = delay;
+      }
+    }
+
+    if (!bestNode) {
+      return;
+    }
+    if (selectedReachable && selectedName.length > 0) {
+      return;
+    }
+
+    const group: ProxyGroupInfo | undefined = this.findSelectedProxyGroup();
+    if (!group) {
+      this.markSelectedProxyNode(bestNode.name);
+      this.pendingProxyName = bestNode.name;
+      this.statusMessage = `当前节点不可达，已预选最快可达节点：${bestNode.name} · ${bestNode.delay}`;
+      this.recordLog('info', this.statusMessage);
+      this.syncHomeRuntimeFields();
+      return;
+    }
+
+    const ok: boolean = await MihomoControllerService.selectProxy(group.name, bestNode.name);
+    if (!ok) {
+      this.statusMessage = `最快可达节点选择失败：${group.name} -> ${bestNode.name}`;
+      this.recordLog('warn', this.statusMessage);
+      return;
+    }
+
+    this.pendingProxyGroup = group.name;
+    this.pendingProxyName = bestNode.name;
+    this.markSelectedProxyNode(bestNode.name);
+    await this.refreshControllerProxies();
+    this.statusMessage = `当前节点不可达，已切换最快可达节点：${bestNode.name} · ${bestNode.delay}`;
+    this.speedTestProgress = `${this.speedTestSummary} · 已切换 ${bestNode.delay}`;
+    this.recordLog('info', this.statusMessage);
+    this.syncHomeRuntimeFields();
+  }
+
+  private parseDelayText(delay: string): number {
+    if (delay.endsWith(' ms')) {
+      return parseInt(delay.substring(0, delay.length - 3));
+    }
+    return 0;
   }
 
   private getSpeedTestBlockedState(targetCount: number): SpeedTestBlockedState | undefined {

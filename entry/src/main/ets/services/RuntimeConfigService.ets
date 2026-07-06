@@ -1,7 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { fileIo } from '@kit.CoreFileKit';
-import { connection } from '@kit.NetworkKit';
 import { ClashProfile, ProfileState } from '../models/Profile';
 import { CoreService } from './CoreService';
 import { ConvertedSubscription, GenericSubscriptionConverterService } from './GenericSubscriptionConverterService';
@@ -17,11 +16,6 @@ export interface RuntimeConfigResult {
   profileName: string;
   nodeCount: number;
   size: string;
-}
-
-interface RuntimeHostMapping {
-  host: string;
-  address: string;
 }
 
 export class RuntimeConfigService {
@@ -74,7 +68,6 @@ export class RuntimeConfigService {
 
   private static async normalize(text: string): Promise<string> {
     const stripped: string = RuntimeConfigService.removeManagedTopLevelKeys(text);
-    const hostMappings: RuntimeHostMapping[] = await RuntimeConfigService.resolveProxyServerHosts(stripped);
     const base: string = RuntimeConfigService.trimTrailingWhitespace(stripped);
     const managed: string[] = [
       'mixed-port: 7890',
@@ -90,7 +83,7 @@ export class RuntimeConfigService {
       '  enable: true',
       '  listen: 127.0.0.1:1053',
       '  ipv6: false',
-      '  use-hosts: true',
+      '  use-hosts: false',
       '  enhanced-mode: redir-host',
       '  default-nameserver:',
       '    - 223.5.5.5',
@@ -103,100 +96,8 @@ export class RuntimeConfigService {
       '    - 223.5.5.5',
       '    - 119.29.29.29'
     ];
-    const hosts: string[] = RuntimeConfigService.buildHostsBlock(hostMappings);
     const sections: string[] = [base, managed.join('\n'), dns.join('\n')];
-    if (hosts.length > 0) {
-      sections.splice(1, 0, hosts.join('\n'));
-    }
     return `${sections.join('\n\n')}\n`;
-  }
-
-  private static collectProxyServerHosts(text: string): string[] {
-    const lines: string[] = text.split('\n');
-    const hosts: string[] = [];
-    let inProxies: boolean = false;
-    for (let index = 0; index < lines.length; index++) {
-      const line: string = lines[index];
-      const trimmed: string = line.trim();
-      if (trimmed.length === 0 || trimmed.startsWith('#')) {
-        continue;
-      }
-
-      if (!line.startsWith(' ') && !line.startsWith('\t')) {
-        inProxies = trimmed === 'proxies:';
-        continue;
-      }
-
-      if (!inProxies) {
-        continue;
-      }
-
-      const host: string = RuntimeConfigService.extractProxyServerHost(trimmed);
-      if (RuntimeConfigService.shouldResolveHost(host) && !RuntimeConfigService.stringArrayIncludes(hosts, host)) {
-        hosts.push(host);
-      }
-    }
-    return hosts;
-  }
-
-  private static extractProxyServerHost(trimmed: string): string {
-    if (trimmed.startsWith('server:')) {
-      return RuntimeConfigService.cleanYamlScalar(trimmed.substring(7));
-    }
-
-    if (trimmed.startsWith('- {') && trimmed.indexOf('server:') > 0) {
-      return RuntimeConfigService.cleanYamlScalar(RuntimeConfigService.readInlineYamlValue(trimmed, 'server'));
-    }
-    return '';
-  }
-
-  private static async resolveProxyServerHosts(text: string): Promise<RuntimeHostMapping[]> {
-    const hosts: string[] = RuntimeConfigService.collectProxyServerHosts(text);
-    const mappings: RuntimeHostMapping[] = [];
-    const batchSize: number = 24;
-    for (let start = 0; start < hosts.length; start += batchSize) {
-      const batch: string[] = hosts.slice(start, start + batchSize);
-      const tasks: Promise<RuntimeHostMapping | undefined>[] = [];
-      for (let index = 0; index < batch.length; index++) {
-        tasks.push(RuntimeConfigService.resolveProxyServerHost(batch[index]));
-      }
-      const results: (RuntimeHostMapping | undefined)[] = await Promise.all(tasks);
-      for (let index = 0; index < results.length; index++) {
-        const item: RuntimeHostMapping | undefined = results[index];
-        if (item) {
-          mappings.push(item);
-        }
-      }
-    }
-    return mappings;
-  }
-
-  private static async resolveProxyServerHost(host: string): Promise<RuntimeHostMapping | undefined> {
-    try {
-      const addresses: connection.NetAddress[] = await connection.getAddressesByName(host);
-      for (let index = 0; index < addresses.length; index++) {
-        const item: connection.NetAddress = addresses[index];
-        if ((item.family === undefined || item.family === 1) && RuntimeConfigService.isIPv4Address(item.address)) {
-          return { host: host, address: item.address };
-        }
-      }
-    } catch (err) {
-      return undefined;
-    }
-    return undefined;
-  }
-
-  private static buildHostsBlock(mappings: RuntimeHostMapping[]): string[] {
-    if (mappings.length === 0) {
-      return [];
-    }
-
-    const lines: string[] = ['hosts:'];
-    for (let index = 0; index < mappings.length; index++) {
-      const item: RuntimeHostMapping = mappings[index];
-      lines.push(`  ${RuntimeConfigService.yamlString(item.host)}: ${RuntimeConfigService.yamlString(item.address)}`);
-    }
-    return lines;
   }
 
   private static removeManagedTopLevelKeys(text: string): string {
@@ -269,89 +170,6 @@ export class RuntimeConfigService {
       text.indexOf('proxy-providers:') >= 0 ||
       text.indexOf('proxy-groups:') >= 0 ||
       text.indexOf('rules:') >= 0;
-  }
-
-  private static shouldResolveHost(host: string): boolean {
-    if (host.length === 0 || host.indexOf('$') >= 0) {
-      return false;
-    }
-    if (RuntimeConfigService.isIPv4Address(host) || RuntimeConfigService.looksLikeIPv6Address(host)) {
-      return false;
-    }
-    return host.indexOf('.') > 0;
-  }
-
-  private static isIPv4Address(value: string): boolean {
-    const parts: string[] = value.split('.');
-    if (parts.length !== 4) {
-      return false;
-    }
-    for (let index = 0; index < parts.length; index++) {
-      const part: string = parts[index];
-      if (part.length === 0 || part.length > 3) {
-        return false;
-      }
-      const numberValue: number = parseInt(part);
-      if (numberValue < 0 || numberValue > 255 || numberValue.toString() !== part && !(part.length > 1 && part.startsWith('0'))) {
-        return false;
-      }
-      for (let charIndex = 0; charIndex < part.length; charIndex++) {
-        const code: number = part.charCodeAt(charIndex);
-        if (code < 48 || code > 57) {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
-
-  private static looksLikeIPv6Address(value: string): boolean {
-    return value.indexOf(':') >= 0;
-  }
-
-  private static stringArrayIncludes(values: string[], target: string): boolean {
-    for (let index = 0; index < values.length; index++) {
-      if (values[index] === target) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private static readInlineYamlValue(line: string, key: string): string {
-    const token: string = `${key}:`;
-    const index: number = line.indexOf(token);
-    if (index < 0) {
-      return '';
-    }
-
-    let end: number = line.indexOf(',', index);
-    if (end < 0) {
-      end = line.indexOf('}', index);
-    }
-    if (end < 0) {
-      end = line.length;
-    }
-    return line.substring(index + token.length, end);
-  }
-
-  private static cleanYamlScalar(value: string): string {
-    let text: string = value.trim();
-    const commentIndex: number = text.indexOf(' #');
-    if (commentIndex >= 0) {
-      text = text.substring(0, commentIndex).trim();
-    }
-    if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) {
-      text = text.substring(1, text.length - 1);
-    }
-    if (text.startsWith("'") && text.endsWith("'") && text.length >= 2) {
-      text = text.substring(1, text.length - 1);
-    }
-    return text;
-  }
-
-  private static yamlString(value: string): string {
-    return `'${value.replace(/'/g, "''")}'`;
   }
 
   private static resolveConfigText(text: string): ConfigTextResult {

@@ -774,7 +774,7 @@ bool WriteTunConfigLocked(const char* configPath, int tunFd, const std::string& 
     output << "  enable: true\n";
     output << "  stack: gvisor\n";
     output << "  auto-route: false\n";
-    output << "  auto-detect-interface: false\n";
+    output << "  auto-detect-interface: true\n";
     output << "  file-descriptor: " << tunFd << "\n";
     output.flush();
     if (!output) {
