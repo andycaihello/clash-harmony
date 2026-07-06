@@ -1,0 +1,11 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Entry module for Clash Harmony.",
+  "main": "",
+  "author": "Clash Harmony Contributors",
+  "license": "GPL-3.0-only",
+  "dependencies": {
+    "libentry.so": "file:./src/main/cpp/types/libentry"
+  }
+}

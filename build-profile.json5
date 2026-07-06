@@ -1,0 +1,50 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/andy/.ohos/config/default_Clash_Harmony_vG7PfyjrmHLyYHMRfkI9D1ECOUMx7ZyOTvNgjWhoURc=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BCA0E872406AEA0371FFE242FBBFEA6493220A237087F079A7B609471AE0D672869DE35C3513109",
+          "profile": "/Users/andy/.ohos/config/default_Clash_Harmony_vG7PfyjrmHLyYHMRfkI9D1ECOUMx7ZyOTvNgjWhoURc=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/andy/.ohos/config/default_Clash_Harmony_vG7PfyjrmHLyYHMRfkI9D1ECOUMx7ZyOTvNgjWhoURc=.p12",
+          "storePassword": "0000001BC13E4638988B74D0DED113D38C12A0F7539955FD78DF10E1B8A8972A3374971A182A87E1EED0A3"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "targetSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS",
+        "signingConfig": "default"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

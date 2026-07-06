@@ -1,0 +1,1037 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clash Harmony Mobile Prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eef2f7;
+        --surface: #ffffff;
+        --surface-2: #f8fafc;
+        --ink: #0f172a;
+        --muted: #475569;
+        --line: #dbe3ef;
+        --teal: #0f766e;
+        --teal-soft: #e6fffb;
+        --blue: #2563eb;
+        --blue-soft: #eff6ff;
+        --amber: #d97706;
+        --amber-soft: #fff7ed;
+        --red: #dc2626;
+        --red-soft: #fef2f2;
+        --shadow: 0 22px 70px rgba(15, 23, 42, 0.18);
+        --radius: 8px;
+        --font: Inter, HarmonyOS Sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(135deg, rgba(15, 118, 110, 0.12), transparent 34%),
+          linear-gradient(315deg, rgba(37, 99, 235, 0.12), transparent 38%),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--font);
+        letter-spacing: 0;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(390px, 430px) minmax(320px, 460px);
+        gap: 28px;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 28px;
+      }
+
+      .phone {
+        width: min(390px, calc(100vw - 32px));
+        height: min(844px, calc(100vh - 56px));
+        min-height: 720px;
+        overflow: hidden;
+        border: 1px solid rgba(15, 23, 42, 0.18);
+        border-radius: 28px;
+        background: var(--surface-2);
+        box-shadow: var(--shadow);
+        display: grid;
+        grid-template-rows: 28px 52px minmax(0, 1fr) 68px;
+      }
+
+      .statusbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 18px;
+        color: var(--muted);
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.82);
+        border-bottom: 1px solid rgba(219, 227, 239, 0.7);
+      }
+
+      .appbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 16px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .app-title {
+        min-width: 0;
+      }
+
+      .app-title strong {
+        display: block;
+        font-size: 18px;
+        line-height: 20px;
+      }
+
+      .app-title span {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .icon-button {
+        display: inline-grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        color: var(--ink);
+        cursor: pointer;
+      }
+
+      .content {
+        min-height: 0;
+        overflow: auto;
+        padding: 14px 16px 16px;
+      }
+
+      .screen {
+        display: none;
+      }
+
+      .screen.active {
+        display: block;
+      }
+
+      .stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      .card,
+      .section {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+      }
+
+      .section {
+        padding: 12px;
+      }
+
+      .card {
+        padding: 12px;
+      }
+
+      .hero-status {
+        background:
+          linear-gradient(135deg, rgba(15, 118, 110, 0.13), rgba(37, 99, 235, 0.08)),
+          var(--surface);
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .row + .row {
+        margin-top: 10px;
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .value {
+        font-weight: 650;
+        font-size: 14px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 24px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--surface-2);
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .pill.ok {
+        border-color: rgba(15, 118, 110, 0.28);
+        background: var(--teal-soft);
+        color: var(--teal);
+      }
+
+      .pill.info {
+        border-color: rgba(37, 99, 235, 0.22);
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+
+      .pill.warn {
+        border-color: rgba(217, 119, 6, 0.25);
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .connect {
+        width: 124px;
+        height: 124px;
+        border: 0;
+        border-radius: 50%;
+        background: radial-gradient(circle at 34% 28%, #19a99b, var(--teal));
+        color: white;
+        box-shadow: 0 16px 32px rgba(15, 118, 110, 0.28);
+        cursor: pointer;
+      }
+
+      .connect span {
+        display: block;
+        font-size: 12px;
+        opacity: 0.86;
+      }
+
+      .connect strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 22px;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .metric {
+        min-width: 0;
+        padding: 10px 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 16px;
+      }
+
+      .segment {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+      }
+
+      .segment button {
+        min-height: 32px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .segment button.active {
+        background: var(--surface);
+        color: var(--ink);
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+        font-weight: 650;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .text-button {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--ink);
+        min-height: 32px;
+        padding: 0 10px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      .text-button.primary {
+        border-color: var(--teal);
+        background: var(--teal);
+        color: white;
+      }
+
+      .text-button.blue {
+        border-color: var(--blue);
+        background: var(--blue);
+        color: white;
+      }
+
+      .list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .list-item {
+        min-height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+      }
+
+      .list-item.selected {
+        border-color: rgba(15, 118, 110, 0.45);
+        background: var(--teal-soft);
+      }
+
+      .item-main {
+        min-width: 0;
+      }
+
+      .item-main strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+      }
+
+      .item-main span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .latency {
+        min-width: 58px;
+        text-align: right;
+        color: var(--teal);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .latency.slow {
+        color: var(--amber);
+      }
+
+      .latency.dead {
+        color: var(--red);
+      }
+
+      .search {
+        width: 100%;
+        height: 38px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        outline: none;
+      }
+
+      .group-tabs {
+        display: flex;
+        gap: 8px;
+        overflow: auto;
+        padding-bottom: 2px;
+      }
+
+      .group-tabs button {
+        flex: 0 0 auto;
+        min-height: 32px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .group-tabs button.active {
+        border-color: rgba(37, 99, 235, 0.35);
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-weight: 650;
+      }
+
+      .tabbar {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 2px;
+        padding: 6px 10px 8px;
+        border-top: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.96);
+      }
+
+      .tabbar button {
+        display: grid;
+        place-items: center;
+        gap: 3px;
+        min-width: 0;
+        border: 0;
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 11px;
+      }
+
+      .tabbar button.active {
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+
+      .tab-icon {
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .diag-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+      }
+
+      .diag-tabs button {
+        min-height: 32px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .diag-tabs button.active {
+        background: var(--surface);
+        color: var(--ink);
+        font-weight: 650;
+      }
+
+      .logline {
+        display: grid;
+        grid-template-columns: 54px 44px 1fr;
+        gap: 6px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+      }
+
+      .logline:last-child {
+        border-bottom: 0;
+      }
+
+      .switch {
+        width: 42px;
+        height: 24px;
+        padding: 2px;
+        border-radius: 999px;
+        background: #cbd5e1;
+      }
+
+      .switch.on {
+        background: var(--teal);
+      }
+
+      .switch::after {
+        content: "";
+        display: block;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: white;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+      }
+
+      .switch.on::after {
+        margin-left: 18px;
+      }
+
+      .side-note {
+        align-self: stretch;
+        display: grid;
+        gap: 14px;
+      }
+
+      .note-card {
+        padding: 18px;
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        border-radius: var(--radius);
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08);
+      }
+
+      .note-card h1,
+      .note-card h2 {
+        margin: 0;
+      }
+
+      .note-card h1 {
+        font-size: 24px;
+      }
+
+      .note-card h2 {
+        font-size: 16px;
+      }
+
+      .note-card p,
+      .note-card li {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .note-card ul {
+        margin: 10px 0 0;
+        padding-left: 18px;
+      }
+
+      @media (max-width: 900px) {
+        .workspace {
+          grid-template-columns: 1fr;
+          padding: 16px;
+        }
+
+        .phone {
+          justify-self: center;
+          height: min(844px, calc(100vh - 32px));
+        }
+
+        .side-note {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="workspace">
+      <section class="phone" aria-label="Clash Harmony 移动端原型">
+        <div class="statusbar">
+          <span>11:46</span>
+          <span>5G  VPN  86%</span>
+        </div>
+        <header class="appbar">
+          <div class="app-title">
+            <strong id="appTitle">Clash Harmony</strong>
+            <span id="appSubtitle">已连接 · 规则模式</span>
+          </div>
+          <button class="icon-button" type="button" data-nav="settings" aria-label="打开设置">
+            <span aria-hidden="true">••</span>
+          </button>
+        </header>
+
+        <section class="content">
+          <div class="screen active" data-screen="home">
+            <div class="stack">
+              <section class="card hero-status">
+                <div class="row">
+                  <span class="pill ok"><span class="dot"></span> 已连接</span>
+                  <span class="pill info">运行 2h 18m</span>
+                </div>
+                <div class="row" style="justify-content: center; margin: 18px 0 16px;">
+                  <button class="connect" type="button">
+                    <span>VPN</span>
+                    <strong>断开</strong>
+                  </button>
+                </div>
+                <div class="metric-grid">
+                  <div class="metric">
+                    <span class="label">下载</span>
+                    <strong>4.2 MB/s</strong>
+                  </div>
+                  <div class="metric">
+                    <span class="label">上传</span>
+                    <strong>820 KB/s</strong>
+                  </div>
+                  <div class="metric">
+                    <span class="label">连接</span>
+                    <strong>42</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-title">运行模式</div>
+                <div class="segment">
+                  <button class="active" type="button">规则</button>
+                  <button type="button">全局</button>
+                  <button type="button">直连</button>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-title">
+                  <span>当前链路</span>
+                  <button class="text-button" type="button" data-nav="proxies">切换</button>
+                </div>
+                <div class="row">
+                  <span class="label">配置</span>
+                  <span class="value">HK Premium</span>
+                </div>
+                <div class="row">
+                  <span class="label">策略组</span>
+                  <span class="value">Auto / JP-03 Tokyo</span>
+                </div>
+                <div class="row">
+                  <span class="label">延迟</span>
+                  <span class="value" style="color: var(--teal)">68 ms</span>
+                </div>
+              </section>
+
+              <section class="section">
+                <div class="section-title">
+                  <span>最近状态</span>
+                  <button class="text-button" type="button" data-nav="diagnostics">查看</button>
+                </div>
+                <div class="list">
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>DNS 正常</strong>
+                      <span>fake-ip · doh.example.net</span>
+                    </div>
+                    <span class="pill ok">正常</span>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>订阅将在 18 小时后更新</strong>
+                      <span>上次更新 11:12 · 186 个节点</span>
+                    </div>
+                    <span class="pill">计划</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div class="screen" data-screen="proxies">
+            <div class="stack">
+              <section class="section">
+                <div class="segment">
+                  <button class="active" type="button">规则</button>
+                  <button type="button">全局</button>
+                  <button type="button">直连</button>
+                </div>
+              </section>
+              <input class="search" value="" placeholder="搜索节点、地区或提供者" />
+              <div class="group-tabs">
+                <button class="active" type="button">Auto</button>
+                <button type="button">Streaming</button>
+                <button type="button">AI</button>
+                <button type="button">Fallback</button>
+                <button type="button">Global</button>
+              </div>
+              <section class="section">
+                <div class="section-title">
+                  <span>Auto · 12 个节点</span>
+                  <button class="text-button blue" type="button">测速</button>
+                </div>
+                <div class="list">
+                  <div class="list-item selected">
+                    <div class="item-main">
+                      <strong>JP-03 Tokyo</strong>
+                      <span>Trojan · Provider A · UDP</span>
+                    </div>
+                    <div class="latency">68 ms</div>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>HK-02 Central</strong>
+                      <span>VLESS · Provider A</span>
+                    </div>
+                    <div class="latency">82 ms</div>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>SG-01 Marina</strong>
+                      <span>Shadowsocks · Provider B</span>
+                    </div>
+                    <div class="latency slow">146 ms</div>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>US-08 Los Angeles</strong>
+                      <span>Trojan · Provider C · xUDP</span>
+                    </div>
+                    <div class="latency slow">188 ms</div>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>DE-01 Frankfurt</strong>
+                      <span>VLESS · Provider C</span>
+                    </div>
+                    <div class="latency dead">超时</div>
+                  </div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">链式代理</div>
+                <div class="row">
+                  <div>
+                    <div class="value">高级模式关闭</div>
+                    <div class="label">开启后可设置入口和出口节点</div>
+                  </div>
+                  <div class="switch"></div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div class="screen" data-screen="profiles">
+            <div class="stack">
+              <section class="section">
+                <div class="row">
+                  <button class="text-button primary" type="button">导入订阅</button>
+                  <button class="text-button" type="button">本地文件</button>
+                  <button class="text-button" type="button">剪贴板</button>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">当前启用</div>
+                <div class="list-item selected">
+                  <div class="item-main">
+                    <strong>HK Premium</strong>
+                    <span>186 节点 · 已更新 11:12 · 剩余 82 GB</span>
+                  </div>
+                  <span class="pill ok">运行中</span>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">
+                  <span>配置列表</span>
+                  <button class="text-button" type="button">全量更新</button>
+                </div>
+                <div class="list">
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>Work Route</strong>
+                      <span>42 节点 · 下次 18:00</span>
+                    </div>
+                    <button class="text-button" type="button">启用</button>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>Local Debug</strong>
+                      <span>本地 YAML · 3 条规则增强</span>
+                    </div>
+                    <button class="text-button" type="button">编辑</button>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>Travel Backup</strong>
+                      <span>远程订阅 · 7 天未更新</span>
+                    </div>
+                    <span class="pill warn">待更新</span>
+                  </div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">配置增强</div>
+                <div class="metric-grid">
+                  <div class="metric">
+                    <span class="label">Merge</span>
+                    <strong>2</strong>
+                  </div>
+                  <div class="metric">
+                    <span class="label">Rules</span>
+                    <strong>5</strong>
+                  </div>
+                  <div class="metric">
+                    <span class="label">Groups</span>
+                    <strong>1</strong>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div class="screen" data-screen="diagnostics">
+            <div class="stack">
+              <section class="section">
+                <div class="diag-tabs">
+                  <button class="active" type="button">连接</button>
+                  <button type="button">日志</button>
+                  <button type="button">规则</button>
+                  <button type="button">DNS</button>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">
+                  <span>连接概览</span>
+                  <button class="text-button" type="button">关闭全部</button>
+                </div>
+                <div class="metric-grid">
+                  <div class="metric">
+                    <span class="label">活跃</span>
+                    <strong>42</strong>
+                  </div>
+                  <div class="metric">
+                    <span class="label">下载</span>
+                    <strong>1.8 GB</strong>
+                  </div>
+                  <div class="metric">
+                    <span class="label">上传</span>
+                    <strong>320 MB</strong>
+                  </div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">活跃连接</div>
+                <div class="list">
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>api.github.com</strong>
+                      <span>Rule: Proxy · JP-03 Tokyo · TLS</span>
+                    </div>
+                    <span class="pill info">12s</span>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>music.example.net</strong>
+                      <span>Rule: Streaming · HK-02 Central</span>
+                    </div>
+                    <span class="pill info">1m</span>
+                  </div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">
+                  <span>最近日志</span>
+                  <button class="text-button" type="button">导出</button>
+                </div>
+                <div class="logline">
+                  <span>11:42</span><span>info</span><span>proxy group Auto selected JP-03</span>
+                </div>
+                <div class="logline">
+                  <span>11:43</span><span>warn</span><span>provider Travel Backup update delayed</span>
+                </div>
+                <div class="logline">
+                  <span>11:44</span><span>info</span><span>dns cache hit api.github.com</span>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div class="screen" data-screen="settings">
+            <div class="stack">
+              <section class="section">
+                <div class="section-title">VPN</div>
+                <div class="row">
+                  <div>
+                    <div class="value">后台持续运行</div>
+                    <div class="label">连接后显示系统可见状态</div>
+                  </div>
+                  <div class="switch on"></div>
+                </div>
+                <div class="row">
+                  <div>
+                    <div class="value">IPv6</div>
+                    <div class="label">跟随配置，异常时提示</div>
+                  </div>
+                  <div class="switch"></div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">DNS</div>
+                <div class="list">
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>DNS 模式</strong>
+                      <span>fake-ip · 增强模式</span>
+                    </div>
+                    <span class="pill">配置</span>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>泄漏检测</strong>
+                      <span>连接后自动检测一次</span>
+                    </div>
+                    <div class="switch on"></div>
+                  </div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">核心</div>
+                <div class="list">
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>mihomo</strong>
+                      <span>Alpha 通道关闭 · 日志 info</span>
+                    </div>
+                    <span class="pill ok">正常</span>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>外部控制器</strong>
+                      <span>仅本机访问，默认关闭局域网</span>
+                    </div>
+                    <div class="switch"></div>
+                  </div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-title">安全与备份</div>
+                <div class="list">
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>诊断包脱敏</strong>
+                      <span>隐藏订阅 token、节点密码、secret</span>
+                    </div>
+                    <div class="switch on"></div>
+                  </div>
+                  <div class="list-item">
+                    <div class="item-main">
+                      <strong>本地备份</strong>
+                      <span>最近备份：今天 10:21</span>
+                    </div>
+                    <button class="text-button" type="button">导出</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <nav class="tabbar" aria-label="主导航">
+          <button class="active" type="button" data-nav="home">
+            <span class="tab-icon">H</span>
+            <span>首页</span>
+          </button>
+          <button type="button" data-nav="proxies">
+            <span class="tab-icon">P</span>
+            <span>代理</span>
+          </button>
+          <button type="button" data-nav="profiles">
+            <span class="tab-icon">C</span>
+            <span>配置</span>
+          </button>
+          <button type="button" data-nav="diagnostics">
+            <span class="tab-icon">D</span>
+            <span>诊断</span>
+          </button>
+        </nav>
+      </section>
+
+      <aside class="side-note">
+        <section class="note-card">
+          <h1>Clash Harmony 原型</h1>
+          <p>
+            这是鸿蒙版移动端的主界面交互原型。底部 4 个主 Tab 对应日常最高频任务，
+            设置从右上入口进入，避免把高级选项挤占主导航。
+          </p>
+        </section>
+        <section class="note-card">
+          <h2>当前原型覆盖</h2>
+          <ul>
+            <li>首页：VPN 状态、主开关、模式、当前链路和异常摘要。</li>
+            <li>代理：策略组、节点延迟、测速、链式代理入口。</li>
+            <li>配置：订阅导入、启用、更新、增强摘要。</li>
+            <li>诊断：连接概览、活跃连接、最近日志、导出入口。</li>
+            <li>设置：VPN、DNS、核心、安全和备份分组。</li>
+          </ul>
+        </section>
+        <section class="note-card">
+          <h2>设计取舍</h2>
+          <p>
+            原型保留 Clash Verge Rev 的高级能力，但在移动端以“默认路径 + 高级入口”呈现。
+            首页只承担状态判断和主操作，配置编辑、运行 YAML、WebDAV 等能力进入二级页面。
+          </p>
+        </section>
+      </aside>
+    </main>
+
+    <script>
+      const titles = {
+        home: ["Clash Harmony", "已连接 · 规则模式"],
+        proxies: ["代理", "Auto · JP-03 Tokyo"],
+        profiles: ["配置", "HK Premium 正在运行"],
+        diagnostics: ["诊断", "连接 42 · 日志正常"],
+        settings: ["设置", "VPN · DNS · 核心"],
+      };
+
+      function navigate(target) {
+        document.querySelectorAll(".screen").forEach((screen) => {
+          screen.classList.toggle("active", screen.dataset.screen === target);
+        });
+        document.querySelectorAll(".tabbar button").forEach((button) => {
+          button.classList.toggle("active", button.dataset.nav === target);
+        });
+        const [title, subtitle] = titles[target] || titles.home;
+        document.getElementById("appTitle").textContent = title;
+        document.getElementById("appSubtitle").textContent = subtitle;
+      }
+
+      document.querySelectorAll("[data-nav]").forEach((button) => {
+        button.addEventListener("click", () => navigate(button.dataset.nav));
+      });
+    </script>
+  </body>
+</html>

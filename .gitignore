@@ -1,0 +1,15 @@
+.hvigor/
+.idea/
+.preview/
+.cxx/
+entry/.cxx/
+artifacts/
+build/
+node_modules/
+oh_modules/
+local.properties
+*.hap
+*.hsp
+*.har
+*.log
+.DS_Store

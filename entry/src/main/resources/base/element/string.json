@@ -1,0 +1,24 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Clash Harmony entry module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Clash Harmony main ability"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Clash Harmony"
+    },
+    {
+      "name": "ClashVpnExtensionAbility_desc",
+      "value": "VPN extension for Clash Harmony"
+    },
+    {
+      "name": "read_pasteboard_reason",
+      "value": "用于从剪贴板读取订阅链接或 Clash YAML 配置"
+    }
+  ]
+}

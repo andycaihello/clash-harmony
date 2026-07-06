@@ -1,0 +1,11 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "clash_harmony",
+  "version": "0.1.0",
+  "description": "HarmonyOS client prototype for Clash/mihomo.",
+  "main": "",
+  "author": "Clash Harmony Contributors",
+  "license": "GPL-3.0-only",
+  "dependencies": {},
+  "devDependencies": {}
+}
