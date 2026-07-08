@@ -80,6 +80,8 @@ const NAV_ITEMS: NavItem[] = [
 ];
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'ClashHarmonyIndex';
+const APP_VERSION_NAME: string = 'v0.1.0';
+const APP_BUILD_UPDATED_AT: string = '2026-07-08 11:28';
 
 const EMPTY_CORE_BRIDGE_STATE: CoreBridgeState = {
   running: false,
@@ -161,6 +163,13 @@ struct Index {
   @State private liveProxyName: string = '未连接';
   @State private liveRuntimeConfigState: string = '未准备';
   @State private liveRefreshToken: number = 0;
+  @State private vpnTunnelActive: boolean = false;
+  @State private homeLastDownloadTotal: number = 0;
+  @State private homeLastUploadTotal: number = 0;
+  @State private homeLastActiveDownloadTotal: number = 0;
+  @State private homeLastActiveUploadTotal: number = 0;
+  @State private homeLastPollAt: number = 0;
+  @State private homeTrafficBaselineReady: boolean = false;
   private connectedAt: number = 0;
   private lastToggleAt: number = 0;
   private toggling: boolean = false;
@@ -168,10 +177,6 @@ struct Index {
   private homeRefreshIntervalId: number | undefined = undefined;
   private homeRefreshInFlight: boolean = false;
   private homeRefreshFailures: number = 0;
-  private homeLastDownloadTotal: number = 0;
-  private homeLastUploadTotal: number = 0;
-  private homeLastPollAt: number = 0;
-  private homeTrafficBaselineReady: boolean = false;
 
   aboutToAppear(): void {
     hilog.info(LOG_DOMAIN, LOG_TAG, 'Index aboutToAppear, loading profiles');
@@ -204,6 +209,8 @@ struct Index {
         TrafficPollerService.stop();
         this.runtimePollTick = 0;
         this.connectedAt = 0;
+        this.vpnTunnelActive = false;
+        this.resetHomeTrafficBaseline();
         this.runtimeConnections = [];
         this.clearControllerProxyGroups();
         this.coreBridgeState = CoreBridgeService.markControllerReady(false, '');
@@ -228,6 +235,7 @@ struct Index {
       this.statusMessage = '正在准备运行配置...';
       const runtime: RuntimeConfigResult = await this.prepareRuntimeForConnection(context);
       if (!runtime.ok) {
+        this.vpnTunnelActive = false;
         this.summary = CoreService.createSummary(this.profileState, false);
         this.statusMessage = runtime.message;
         hilog.error(LOG_DOMAIN, LOG_TAG, 'toggleVpn: runtime failed: %{public}s', runtime.message);
@@ -250,6 +258,7 @@ struct Index {
       hilog.info(LOG_DOMAIN, LOG_TAG, 'toggleVpn: VpnService.start returned %{public}s', started ? 'true' : 'false');
 
       if (!started) {
+        this.vpnTunnelActive = false;
         this.summary = CoreService.createSummary(this.profileState, false);
         this.statusMessage = 'VPN 启动失败：模拟器可能不支持 VPN Extension，请使用真机';
         this.recordLog('warn', this.statusMessage);
@@ -266,6 +275,8 @@ struct Index {
       if (!controllerReady.available) {
         TrafficPollerService.stop();
         this.connectedAt = 0;
+        this.vpnTunnelActive = false;
+        this.resetHomeTrafficBaseline();
         this.clearControllerProxyGroups();
         this.coreBridgeState = CoreBridgeService.markControllerReady(false, '');
         await VpnService.stop();
@@ -281,6 +292,8 @@ struct Index {
       if (!tunReady.ready) {
         TrafficPollerService.stop();
         this.connectedAt = 0;
+        this.vpnTunnelActive = false;
+        this.resetHomeTrafficBaseline();
         this.clearControllerProxyGroups();
         this.coreBridgeState = CoreBridgeService.markControllerReady(false, '');
         await VpnService.stop();
@@ -293,6 +306,7 @@ struct Index {
       }
 
       this.coreBridgeState = CoreBridgeService.markControllerReady(true, controllerReady.version);
+      this.vpnTunnelActive = true;
       await MihomoControllerService.setMode(this.normalizeProxyMode(this.proxyMode));
       this.summary = CoreService.createSummary(this.profileState, true);
       this.vpnActionText = '断开';
@@ -310,6 +324,8 @@ struct Index {
       TrafficPollerService.stop();
       hilog.error(LOG_DOMAIN, LOG_TAG, 'toggleVpn: exception=%{public}s', JSON.stringify(err));
       this.statusMessage = '连接异常，请查看诊断页';
+      this.vpnTunnelActive = false;
+      this.resetHomeTrafficBaseline();
       this.summary = CoreService.createSummary(this.profileState, false);
       this.clearControllerProxyGroups();
       this.syncHomeRuntimeFields();
@@ -410,6 +426,20 @@ struct Index {
 
     this.controllerStatus = status;
     this.coreBridgeState = CoreBridgeService.markControllerReady(true, status.version);
+    const tunReady: RuntimeTunStatus = await this.waitForVpnTunReady(1, 0);
+    if (!tunReady.ready) {
+      this.vpnTunnelActive = false;
+      this.connectedAt = 0;
+      this.vpnActionText = '连接';
+      this.summary = CoreService.createSummary(this.profileState, false);
+      this.statusMessage = `controller 已连接：${status.version} · VPN 未连接`;
+      await this.refreshControllerProxies();
+      await this.refreshConnections();
+      this.syncHomeRuntimeFields();
+      return;
+    }
+
+    this.vpnTunnelActive = true;
     if (this.connectedAt <= 0) {
       this.connectedAt = Date.now();
     }
@@ -578,10 +608,18 @@ struct Index {
     this.recordLog(status.available ? 'info' : 'warn', this.statusMessage);
     if (status.available) {
       await this.refreshControllerProxies();
-      if (this.summary.state !== 'running') {
+      const tunReady: RuntimeTunStatus = await this.waitForVpnTunReady(1, 0);
+      if (tunReady.ready) {
+        this.vpnTunnelActive = true;
         this.connectedAt = Date.now();
         this.vpnActionText = '断开';
         this.startRuntimePolling();
+      } else {
+        this.vpnTunnelActive = false;
+        this.connectedAt = 0;
+        this.vpnActionText = '连接';
+        this.summary = CoreService.createSummary(this.profileState, false);
+        this.statusMessage = `controller 已连接：${status.version} · VPN 未连接`;
       }
       await this.refreshConnections();
       this.syncHomeRuntimeFields();
@@ -730,7 +768,7 @@ struct Index {
     this.statusMessage = ok ? `已切换到${this.modeLabel(mode)}模式` : '模式切换失败，controller 未响应';
     if (ok) {
       this.summary = {
-        state: this.isRuntimeConnected() ? 'running' : this.summary.state,
+        state: this.isRuntimeConnected() ? 'running' : 'stopped',
         mode: mode,
         profileName: this.currentProfileDisplayName(),
         proxyName: this.summary.proxyName,
@@ -957,8 +995,7 @@ struct Index {
     if (this.homeRefreshIntervalId !== undefined) {
       return;
     }
-    this.homeLastPollAt = 0;
-    this.homeTrafficBaselineReady = false;
+    this.resetHomeTrafficBaseline();
     this.refreshLiveRuntimeSnapshot();
     this.homeRefreshIntervalId = setInterval(() => {
       this.refreshLiveRuntimeSnapshot();
@@ -1003,22 +1040,49 @@ struct Index {
       const connections: ControllerConnectionInfo[] = MihomoControllerService.parseConnections(connectionsResult.raw);
       const totalDownload: number = this.readJsonNumber(connectionsResult.raw, 'downloadTotal');
       const totalUpload: number = this.readJsonNumber(connectionsResult.raw, 'uploadTotal');
+      const activeDownloadTotal: number = this.sumConnectionDownload(connections);
+      const activeUploadTotal: number = this.sumConnectionUpload(connections);
       const now: number = Date.now();
       let downloadSpeed: number = 0;
       let uploadSpeed: number = 0;
       if (this.homeTrafficBaselineReady && this.homeLastPollAt > 0 && now > this.homeLastPollAt) {
         const elapsedSeconds: number = (now - this.homeLastPollAt) / 1000;
-        downloadSpeed = Math.max(0, (totalDownload - this.homeLastDownloadTotal) / elapsedSeconds);
-        uploadSpeed = Math.max(0, (totalUpload - this.homeLastUploadTotal) / elapsedSeconds);
+        const totalDownloadDelta: number = Math.max(0, totalDownload - this.homeLastDownloadTotal);
+        const totalUploadDelta: number = Math.max(0, totalUpload - this.homeLastUploadTotal);
+        const activeDownloadDelta: number = Math.max(0, activeDownloadTotal - this.homeLastActiveDownloadTotal);
+        const activeUploadDelta: number = Math.max(0, activeUploadTotal - this.homeLastActiveUploadTotal);
+        downloadSpeed = Math.max(totalDownloadDelta, activeDownloadDelta) / elapsedSeconds;
+        uploadSpeed = Math.max(totalUploadDelta, activeUploadDelta) / elapsedSeconds;
       }
       this.homeLastDownloadTotal = totalDownload;
       this.homeLastUploadTotal = totalUpload;
+      this.homeLastActiveDownloadTotal = activeDownloadTotal;
+      this.homeLastActiveUploadTotal = activeUploadTotal;
       this.homeLastPollAt = now;
       this.homeTrafficBaselineReady = true;
 
       const controllerMode: 'rule' | 'global' | 'direct' = this.parseControllerMode(configResult.raw);
       this.proxyMode = controllerMode;
       this.runtimeConnections = this.mapControllerConnections(connections);
+      const tunReady: RuntimeTunStatus = this.parseRuntimeTunStatus(configResult.raw);
+      if (!tunReady.ready) {
+        this.vpnTunnelActive = false;
+        this.connectedAt = 0;
+        this.vpnActionText = '连接';
+        this.summary = CoreService.createSummary(this.profileState, false);
+        this.resetHomeTrafficBaseline();
+        this.syncHomeRuntimeFields();
+        if (!this.isSpeedTesting && !this.toggling) {
+          const version: string = this.controllerStatus.version.length > 0 ? this.controllerStatus.version : 'controller';
+          this.statusMessage = `controller ${version} 已就绪 · VPN 未连接`;
+        }
+        if (!this.isSpeedTesting && this.runtimePollTick % 3 === 0) {
+          this.refreshControllerProxies();
+        }
+        return;
+      }
+
+      this.vpnTunnelActive = true;
       this.summary = {
         state: 'running',
         mode: controllerMode,
@@ -1051,6 +1115,8 @@ struct Index {
     TrafficPollerService.stop();
     this.runtimePollTick = 0;
     this.connectedAt = 0;
+    this.vpnTunnelActive = false;
+    this.resetHomeTrafficBaseline();
     this.runtimeConnections = [];
     this.controllerStatus = { available: false, version: '', message: message, raw: '' };
     this.coreBridgeState = CoreBridgeService.markControllerReady(false, '');
@@ -1123,7 +1189,7 @@ struct Index {
     const connections: ControllerConnectionInfo[] = MihomoControllerService.parseConnections(result.raw);
     this.runtimeConnections = this.mapControllerConnections(connections);
     this.summary = {
-      state: this.isRuntimeConnected() ? 'running' : this.summary.state,
+      state: this.isRuntimeConnected() ? 'running' : 'stopped',
       mode: this.summary.mode,
       profileName: this.currentProfileDisplayName(),
       proxyName: this.summary.proxyName,
@@ -1249,6 +1315,9 @@ struct Index {
   }
 
   private currentProxyLabel(): string {
+    if (!this.isRuntimeConnected()) {
+      return '未连接';
+    }
     const group: ProxyGroupInfo | undefined = this.findSelectedProxyGroup();
     if (group && group.now.length > 0) {
       return `${group.name} -> ${group.now}`;
@@ -1260,7 +1329,7 @@ struct Index {
   }
 
   private isRuntimeConnected(): boolean {
-    return this.summary.state === 'running' || this.controllerStatus.available || this.vpnActionText === '断开';
+    return this.vpnTunnelActive;
   }
 
   private currentProfileDisplayName(state?: ProfileState): string {
@@ -1290,8 +1359,8 @@ struct Index {
     const connected: boolean = this.isRuntimeConnected();
     this.liveConnected = connected;
     this.liveUptime = connected ? this.summary.uptime : '未连接';
-    this.liveDownloadSpeed = this.summary.downloadSpeed;
-    this.liveUploadSpeed = this.summary.uploadSpeed;
+    this.liveDownloadSpeed = connected ? this.summary.downloadSpeed : '0 KB/s';
+    this.liveUploadSpeed = connected ? this.summary.uploadSpeed : '0 KB/s';
     this.liveConnections = connected ? this.summary.connections : 0;
     this.liveProfileName = this.currentProfileDisplayName(state);
     this.liveProxyName = this.currentProxyLabel();
@@ -1313,10 +1382,42 @@ struct Index {
     try {
       const parsed = JSON.parse(raw) as Record<string, Object>;
       const value = parsed[key];
-      return typeof value === 'number' ? value as number : 0;
+      if (typeof value === 'number') {
+        return value as number;
+      }
+      if (typeof value === 'string') {
+        const parsedValue: number = Number(value as string);
+        return Number.isFinite(parsedValue) ? parsedValue : 0;
+      }
+      return 0;
     } catch (err) {
       return 0;
     }
+  }
+
+  private resetHomeTrafficBaseline(): void {
+    this.homeLastDownloadTotal = 0;
+    this.homeLastUploadTotal = 0;
+    this.homeLastActiveDownloadTotal = 0;
+    this.homeLastActiveUploadTotal = 0;
+    this.homeLastPollAt = 0;
+    this.homeTrafficBaselineReady = false;
+  }
+
+  private sumConnectionDownload(connections: ControllerConnectionInfo[]): number {
+    let total: number = 0;
+    for (let index = 0; index < connections.length; index++) {
+      total += Math.max(0, connections[index].download);
+    }
+    return total;
+  }
+
+  private sumConnectionUpload(connections: ControllerConnectionInfo[]): number {
+    let total: number = 0;
+    for (let index = 0; index < connections.length; index++) {
+      total += Math.max(0, connections[index].upload);
+    }
+    return total;
   }
 
   private formatRuntimeUptime(): string {
@@ -1493,15 +1594,17 @@ struct Index {
   private ProxyNodeRow(node: ProxyNode) {
     Row() {
       Column() {
-        Text(node.name).fontSize(14).fontWeight(FontWeight.Bold).fontColor('#0F172A')
-        Text(node.meta).fontSize(12).fontColor('#64748B').margin({ top: 3 })
+        Text(node.name).fontSize(14).fontWeight(FontWeight.Bold)
+          .fontColor(node.selected ? '#064E3B' : '#0F172A')
+        Text(node.meta).fontSize(12)
+          .fontColor(node.selected ? '#0F766E' : '#64748B').margin({ top: 3 })
       }
       .alignItems(HorizontalAlign.Start).layoutWeight(1)
       Text(node.delay).fontSize(12).fontWeight(FontWeight.Bold)
         .fontColor(node.status === 'dead' ? '#DC2626' : node.status === 'testing' ? '#2563EB' : node.status === 'slow' ? '#D97706' : node.status === 'fast' || node.status === 'normal' ? '#0F766E' : '#64748B')
     }
-    .padding(10).backgroundColor(node.selected ? '#E6FFFB' : '#FFFFFF')
-    .borderRadius(8).border({ width: 1, color: node.selected ? '#99F6E4' : '#E2E8F0' })
+    .padding(10).backgroundColor(node.selected ? '#CCFBF1' : '#FFFFFF')
+    .borderRadius(8).border({ width: node.selected ? 2 : 1, color: node.selected ? '#0F766E' : '#E2E8F0' })
     .onClick(() => { this.selectProxyNode(node) })
   }
 
@@ -1587,6 +1690,19 @@ struct Index {
   @Builder
   private HomeStatusCard() {
     Column({ space: 14 }) {
+      Row() {
+        Text(`版本 ${APP_VERSION_NAME}`)
+          .fontSize(13).fontWeight(FontWeight.Bold).fontColor('#334155')
+        Text(`更新 ${APP_BUILD_UPDATED_AT}`)
+          .fontSize(12).fontWeight(FontWeight.Medium).fontColor('#64748B')
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.SpaceBetween)
+      .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+      .backgroundColor('#F8FAFC')
+      .borderRadius(8)
+      .border({ width: 1, color: '#E2E8F0' })
+
       Row() {
         Text(this.liveConnected ? '已连接' : '未连接')
           .fontSize(12).fontWeight(FontWeight.Bold)
