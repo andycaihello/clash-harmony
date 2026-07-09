@@ -357,3 +357,15 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 $HDC list targets
 $HDC -t <device-serial> install -r entry/build/default/outputs/default/entry-default-signed.hap
 ```
+
+## 真机界面截图
+
+以下截图来自真实 HarmonyOS 手机，展示当前版本的四个主页面。
+
+| 首页 | 代理 |
+| --- | --- |
+| <img src="docs/screenshots/real-device-home.png" width="260" alt="首页真机截图"> | <img src="docs/screenshots/real-device-proxy.png" width="260" alt="代理页真机截图"> |
+
+| 配置 | 诊断 |
+| --- | --- |
+| <img src="docs/screenshots/real-device-profiles.png" width="260" alt="配置页真机截图"> | <img src="docs/screenshots/real-device-diagnostics.png" width="260" alt="诊断页真机截图"> |
