@@ -66,7 +66,10 @@ assert.match(indexSource, /Text\(this\.modeLabel\(this\.proxyMode\)\)/);
 assert.match(indexSource, /Text\(this\.liveProfileName\)/);
 assert.match(indexSource, /Text\(this\.liveProxyName\)/);
 assert.match(indexSource, /APP_VERSION_NAME: string = 'v0\.1\.0'/);
-assert.match(indexSource, /APP_BUILD_UPDATED_AT: string = '2026-07-08 11:28'/);
+assert.match(indexSource, /APP_BUILD_UPDATED_AT: string = '2026-07-08 23:18'/);
+assert.match(indexSource, /DELAY_TEST_TIMEOUT_MS: number = 4500/);
+assert.match(indexSource, /https:\/\/cp\.cloudflare\.com\/generate_204/);
+assert.match(indexSource, /http:\/\/connectivitycheck\.platform\.hicloud\.com\/generate_204/);
 assert.match(indexSource, /Text\(`版本 \$\{APP_VERSION_NAME\}`\)/);
 assert.match(indexSource, /Text\(`更新 \$\{APP_BUILD_UPDATED_AT\}`\)/);
 assert.match(indexSource, /this\.StatusLine\('实时流量'/);
@@ -119,6 +122,25 @@ const refreshProxyNodesSource = refreshProxyNodesBlock[0];
 assert.match(refreshProxyNodesSource, /for \(let index = 0; index < parsed\.nodes\.length; index\+\+\)/);
 assert.doesNotMatch(refreshProxyNodesSource, /slice\(0,\s*\d+\)|parsed\.nodes\.length > \d+|limit/);
 
+const refreshControllerProxiesBlock = indexSource.match(/private async refreshControllerProxies\(\): Promise<void> \{[\s\S]*?\n  \}/);
+assert.ok(refreshControllerProxiesBlock, 'refreshControllerProxies should exist');
+const refreshControllerProxiesSource = refreshControllerProxiesBlock[0];
+assert.match(refreshControllerProxiesSource, /this\.selectedProxyGroup = this\.resolvePreferredProxyGroupName\(groups, previousSelectedGroup\);/);
+assert.doesNotMatch(refreshControllerProxiesSource, /this\.selectedProxyGroup = groups\[0\]\.name;/);
+assert.doesNotMatch(refreshControllerProxiesSource, /this\.clearControllerProxyGroups\(\);/);
+assert.match(indexSource, /private resolvePreferredProxyGroupName\(groups: ProxyGroupInfo\[\], previousSelectedGroup: string\): string/);
+assert.match(indexSource, /this\.proxyMode === 'global' && this\.hasProxyGroup\(groups, 'GLOBAL'\)/);
+assert.ok(
+  indexSource.indexOf('previousSelectedGroup.length > 0 && this.hasProxyGroup(groups, previousSelectedGroup)') <
+    indexSource.indexOf("this.proxyMode === 'global' && this.hasProxyGroup(groups, 'GLOBAL')"),
+  'controller refresh should keep the visible proxy group instead of flipping Global/Proxy on every poll'
+);
+assert.match(indexSource, /private findRuleTrafficProxyGroupName\(groups: ProxyGroupInfo\[\]\): string/);
+assert.match(indexSource, /'Proxy', 'PROXY'/);
+assert.match(indexSource, /groups\[index\]\.name !== 'GLOBAL'/);
+assert.match(indexSource, /private findRuntimeProxyGroup\(\): ProxyGroupInfo \| undefined/);
+assert.match(indexSource, /const group: ProxyGroupInfo \| undefined = this\.findRuntimeProxyGroup\(\);/);
+
 const proxyModeOptionBlock = indexSource.match(/private ProxyModeOption\(text: string, mode: 'rule' \| 'global' \| 'direct'\) \{[\s\S]*?\n  \}/);
 assert.ok(proxyModeOptionBlock, 'ProxyModeOption should exist');
 const proxyModeOptionSource = proxyModeOptionBlock[0];
@@ -140,6 +162,7 @@ assert.ok(proxyNodeRowBlock, 'ProxyNodeRow should exist');
 const proxyNodeRowSource = proxyNodeRowBlock[0];
 assert.match(proxyNodeRowSource, /backgroundColor\(node\.selected \? '#CCFBF1' : '#FFFFFF'\)/);
 assert.match(proxyNodeRowSource, /border\(\{ width: node\.selected \? 2 : 1, color: node\.selected \? '#0F766E' : '#E2E8F0' \}\)/);
+assert.match(proxyScreenSource, /\$\{node\.name\}-\$\{node\.delay\}-\$\{node\.status \? node\.status : ''\}-\$\{node\.selected \? 'selected' : 'normal'\}/);
 
 const runRealSpeedTestBlock = indexSource.match(/private async runRealSpeedTest\(\): Promise<void> \{[\s\S]*?\n  \}/);
 assert.ok(runRealSpeedTestBlock, 'runRealSpeedTest should exist');
@@ -147,16 +170,19 @@ const runRealSpeedTestSource = runRealSpeedTestBlock[0];
 assert.match(indexSource, /\.onClick\(async \(\) => \{ await this\.runRealSpeedTest\(\) \}\)/);
 assert.match(runRealSpeedTestSource, /if \(this\.isSpeedTesting\) \{[\s\S]*?return;/);
 assert.match(runRealSpeedTestSource, /let targetIndexes: number\[\] = this\.getAllProxyNodeIndexes\(\);/);
+assert.match(runRealSpeedTestSource, /let targetNodes: ProxyNode\[\] = this\.createProxyNodeSnapshot\(targetIndexes\);/);
 assert.doesNotMatch(runRealSpeedTestSource, /getVisibleProxyNodeIndexes\(\)/);
 assert.match(runRealSpeedTestSource, /ensureControllerReadyForProxyActions\('测速'\)/);
-assert.match(runRealSpeedTestSource, /targetIndexes\.length === 0/);
+assert.match(runRealSpeedTestSource, /targetNodes\.length === 0/);
 assert.match(runRealSpeedTestSource, /this\.isSpeedTesting = true;/);
 assert.match(runRealSpeedTestSource, /finally \{[\s\S]*?this\.isSpeedTesting = false;/);
 assert.match(runRealSpeedTestSource, /准备测速核心/);
-assert.match(runRealSpeedTestSource, /this\.speedTestProgress = `测速中 0\/\$\{targetIndexes\.length\} · 0 可达`;/);
-assert.match(runRealSpeedTestSource, /this\.updateProxyNodeDelay\(nodeIndex, node\.name, '测试中\.\.\.', 'testing'\);/);
-assert.match(runRealSpeedTestSource, /tasks\.push\(this\.measureProxyNodeDelay\(this\.proxyNodes\[nodeIndex\]\)\);/);
-assert.match(runRealSpeedTestSource, /this\.speedTestProgress = '测速中 ' \+ tested \+ '\/' \+ targetIndexes\.length/);
+assert.match(runRealSpeedTestSource, /this\.speedTestProgress = `测速中 0\/\$\{targetNodes\.length\} · 0 可达`;/);
+assert.match(runRealSpeedTestSource, /this\.updateProxyNodeDelayBatch\(this\.createDelayUpdates\(targetNodes, '测试中\.\.\.', 'testing'\)\);/);
+assert.match(runRealSpeedTestSource, /tasks\.push\(this\.measureProxyNodeDelay\(node\)\);/);
+assert.match(runRealSpeedTestSource, /this\.updateProxyNodeDelayBatch\(updates\);/);
+assert.match(runRealSpeedTestSource, /await this\.waitForUiUpdate\(0\);/);
+assert.match(runRealSpeedTestSource, /this\.speedTestProgress = '测速中 ' \+ tested \+ '\/' \+ targetNodes\.length/);
 assert.doesNotMatch(runRealSpeedTestSource, /slice\(0,\s*8\)|targetIndexes\.length > 8|parsed\.nodes\.length > 8/);
 
 const measureProxyNodeDelayBlock = indexSource.match(/private async measureProxyNodeDelay\(node: ProxyNode\): Promise<number> \{[\s\S]*?\n  \}/);
@@ -165,13 +191,21 @@ const measureProxyNodeDelaySource = measureProxyNodeDelayBlock[0];
 assert.match(measureProxyNodeDelaySource, /if \(!this\.controllerStatus\.available && !this\.coreBridgeState\.controllerReady\) \{[\s\S]*?return -1;/);
 assert.doesNotMatch(measureProxyNodeDelaySource, /this\.summary\.state !== 'running'/);
 assert.ok(
-  measureProxyNodeDelaySource.indexOf('MihomoControllerService.testDelay(node.name, 5000)') >
+  measureProxyNodeDelaySource.indexOf('MihomoControllerService.testDelay(') >
     measureProxyNodeDelaySource.indexOf('!this.controllerStatus.available && !this.coreBridgeState.controllerReady'),
   'proxy speed test should call MihomoControllerService.testDelay only after controller is ready'
 );
-assert.match(measureProxyNodeDelaySource, /MihomoControllerService\.testDelay\(node\.name,\s*5000\)/);
+assert.match(measureProxyNodeDelaySource, /for \(let urlIndex = 0; urlIndex < DELAY_TEST_URLS\.length; urlIndex\+\+\)/);
+assert.match(measureProxyNodeDelaySource, /MihomoControllerService\.testDelay\([\s\S]*?node\.name,[\s\S]*?DELAY_TEST_TIMEOUT_MS,[\s\S]*?DELAY_TEST_URLS\[urlIndex\]/);
+assert.match(measureProxyNodeDelaySource, /if \(delay > 0\) \{[\s\S]*?return delay;/);
 assert.doesNotMatch(measureProxyNodeDelaySource, /TcpDelayTestService\.testNode\(/);
 assert.doesNotMatch(indexSource, /TcpDelayTestService\.testNode\(/);
+
+assert.match(indexSource, /await this\.verifySelectedProxyAfterConnection\(controllerReady\.version\)/);
+assert.match(indexSource, /private async verifySelectedProxyAfterConnection\(controllerVersion: string\): Promise<void>/);
+assert.match(indexSource, /VPN 隧道已建立，但当前节点不可达/);
+assert.match(indexSource, /private formatProxyHealthSuffix\(\): string/);
+assert.match(indexSource, /this\.formatProxyHealthSuffix\(\)/);
 
 const speedTestBlockedStateBlock = indexSource.match(/private getSpeedTestBlockedState\(targetCount: number\): SpeedTestBlockedState \| undefined \{[\s\S]*?\n  \}/);
 assert.ok(speedTestBlockedStateBlock, 'getSpeedTestBlockedState should exist');
@@ -181,7 +215,11 @@ assert.doesNotMatch(speedTestBlockedStateSource, /this\.summary\.state !== 'runn
 assert.doesNotMatch(speedTestBlockedStateSource, /!this\.proxyGroupsSynced \|\| this\.proxyGroups\.length === 0/);
 assert.doesNotMatch(speedTestBlockedStateSource, /nodeDelay:\s*'timeout'|nodeStatus:\s*'dead'/);
 
-assert.match(indexSource, /\$\{node\.name\}-\$\{node\.delay\}-\$\{node\.status \? node\.status : ''\}/);
+assert.match(indexSource, /private proxyDelayCache: Record<string, ProxyDelayState> = \{\};/);
+assert.match(indexSource, /private getCachedProxyDelayState\(name: string\): ProxyDelayState/);
+assert.match(indexSource, /return \{\s*delay: '待测',\s*status: 'pending'\s*\};/);
+assert.match(indexSource, /this\.proxyDelayCache\[update\.name\] =/);
+assert.match(indexSource, /\$\{node\.name\}-\$\{node\.delay\}-\$\{node\.status \? node\.status : ''\}-\$\{node\.selected \? 'selected' : 'normal'\}/);
 assert.doesNotMatch(indexSource, /parsed\.nodes\.length > 8 \? 8 : parsed\.nodes\.length/);
 assert.match(indexSource, /DiagnosticsConnectionSegment/);
 assert.match(indexSource, /DiagnosticsLogSegment/);
@@ -193,6 +231,7 @@ assert.match(indexSource, /MihomoControllerService\.closeAllConnections/);
 assert.match(indexSource, /核心未响应/);
 assert.match(indexSource, /await VpnService\.stop\(\)/);
 assert.match(indexSource, /CoreBridgeService\.getState\(\)/);
+assert.match(indexSource, /TrafficPollerService\.stop\(\);\s*\n\s*this\.stopHomeRefreshLoop\(\);/);
 // Monolithic Index.ets — no page component imports needed
 
 // Monolithic Index.ets — Native Bridge section inline

@@ -40,6 +40,17 @@ interface ProxyNode {
   port?: number;
 }
 
+interface ProxyDelayState {
+  delay: string;
+  status: string;
+}
+
+interface ProxyDelayUpdate {
+  name: string;
+  delay: string;
+  status: string;
+}
+
 interface SpeedTestBlockedState {
   nodeDelay: string;
   nodeStatus: string;
@@ -81,7 +92,13 @@ const NAV_ITEMS: NavItem[] = [
 const LOG_DOMAIN: number = 0x0001;
 const LOG_TAG: string = 'ClashHarmonyIndex';
 const APP_VERSION_NAME: string = 'v0.1.0';
-const APP_BUILD_UPDATED_AT: string = '2026-07-08 11:28';
+const APP_BUILD_UPDATED_AT: string = '2026-07-08 23:18';
+const DELAY_TEST_TIMEOUT_MS: number = 4500;
+const DELAY_TEST_URLS: string[] = [
+  'https://cp.cloudflare.com/generate_204',
+  'https://www.gstatic.com/generate_204',
+  'http://connectivitycheck.platform.hicloud.com/generate_204'
+];
 
 const EMPTY_CORE_BRIDGE_STATE: CoreBridgeState = {
   running: false,
@@ -177,6 +194,11 @@ struct Index {
   private homeRefreshIntervalId: number | undefined = undefined;
   private homeRefreshInFlight: boolean = false;
   private homeRefreshFailures: number = 0;
+  private proxyHealthCheckedAt: number = 0;
+  private proxyHealthOk: boolean = false;
+  private proxyHealthDelay: number = 0;
+  private proxyHealthNode: string = '';
+  private proxyDelayCache: Record<string, ProxyDelayState> = {};
 
   aboutToAppear(): void {
     hilog.info(LOG_DOMAIN, LOG_TAG, 'Index aboutToAppear, loading profiles');
@@ -207,10 +229,12 @@ struct Index {
       if (this.isRuntimeConnected()) {
         hilog.info(LOG_DOMAIN, LOG_TAG, 'toggleVpn: stopping');
         TrafficPollerService.stop();
+        this.stopHomeRefreshLoop();
         this.runtimePollTick = 0;
         this.connectedAt = 0;
         this.vpnTunnelActive = false;
         this.resetHomeTrafficBaseline();
+        this.clearProxyHealthState();
         this.runtimeConnections = [];
         this.clearControllerProxyGroups();
         this.coreBridgeState = CoreBridgeService.markControllerReady(false, '');
@@ -236,6 +260,7 @@ struct Index {
       const runtime: RuntimeConfigResult = await this.prepareRuntimeForConnection(context);
       if (!runtime.ok) {
         this.vpnTunnelActive = false;
+        this.clearProxyHealthState();
         this.summary = CoreService.createSummary(this.profileState, false);
         this.statusMessage = runtime.message;
         hilog.error(LOG_DOMAIN, LOG_TAG, 'toggleVpn: runtime failed: %{public}s', runtime.message);
@@ -259,6 +284,7 @@ struct Index {
 
       if (!started) {
         this.vpnTunnelActive = false;
+        this.clearProxyHealthState();
         this.summary = CoreService.createSummary(this.profileState, false);
         this.statusMessage = 'VPN 启动失败：模拟器可能不支持 VPN Extension，请使用真机';
         this.recordLog('warn', this.statusMessage);
@@ -274,9 +300,11 @@ struct Index {
 
       if (!controllerReady.available) {
         TrafficPollerService.stop();
+        this.stopHomeRefreshLoop();
         this.connectedAt = 0;
         this.vpnTunnelActive = false;
         this.resetHomeTrafficBaseline();
+        this.clearProxyHealthState();
         this.clearControllerProxyGroups();
         this.coreBridgeState = CoreBridgeService.markControllerReady(false, '');
         await VpnService.stop();
@@ -291,9 +319,11 @@ struct Index {
       const tunReady: RuntimeTunStatus = await this.waitForVpnTunReady(8, 500);
       if (!tunReady.ready) {
         TrafficPollerService.stop();
+        this.stopHomeRefreshLoop();
         this.connectedAt = 0;
         this.vpnTunnelActive = false;
         this.resetHomeTrafficBaseline();
+        this.clearProxyHealthState();
         this.clearControllerProxyGroups();
         this.coreBridgeState = CoreBridgeService.markControllerReady(false, '');
         await VpnService.stop();
@@ -317,15 +347,18 @@ struct Index {
       await this.refreshControllerProxies();
       await this.restoreProxySelection(restoreGroup, restoreNode);
       await this.refreshConnections();
+      await this.verifySelectedProxyAfterConnection(controllerReady.version);
       this.syncHomeRuntimeFields();
       this.recordLog('info', `VPN 已连接，controller=${controllerReady.version}`);
       hilog.info(LOG_DOMAIN, LOG_TAG, 'toggleVpn: connected');
     } catch (err) {
       TrafficPollerService.stop();
+      this.stopHomeRefreshLoop();
       hilog.error(LOG_DOMAIN, LOG_TAG, 'toggleVpn: exception=%{public}s', JSON.stringify(err));
       this.statusMessage = '连接异常，请查看诊断页';
       this.vpnTunnelActive = false;
       this.resetHomeTrafficBaseline();
+      this.clearProxyHealthState();
       this.summary = CoreService.createSummary(this.profileState, false);
       this.clearControllerProxyGroups();
       this.syncHomeRuntimeFields();
@@ -739,11 +772,13 @@ struct Index {
   }
 
   private mapParsedProxyNode(node: ParsedProxyNode, index: number): ProxyNode {
+    const delayState: ProxyDelayState = this.getCachedProxyDelayState(node.name);
     return {
       name: node.name,
       meta: `${node.type}${node.udp ? ' · UDP' : ''}`,
-      delay: '待测',
+      delay: delayState.delay,
       selected: index === 0,
+      status: delayState.status,
       server: node.server,
       port: node.port
     };
@@ -784,7 +819,6 @@ struct Index {
 
   private async refreshControllerProxies(): Promise<void> {
     const previousSelectedGroup: string = this.selectedProxyGroup;
-    this.clearControllerProxyGroups();
     const result: ControllerTextResult = await MihomoControllerService.getProxies();
     if (!result.ok) {
       this.proxyStatus = result.message;
@@ -798,18 +832,7 @@ struct Index {
       return;
     }
 
-    let selectedExists: boolean = false;
-    for (let index = 0; index < groups.length; index++) {
-      if (groups[index].name === previousSelectedGroup) {
-        selectedExists = true;
-        break;
-      }
-    }
-    if (!selectedExists) {
-      this.selectedProxyGroup = groups[0].name;
-    } else {
-      this.selectedProxyGroup = previousSelectedGroup;
-    }
+    this.selectedProxyGroup = this.resolvePreferredProxyGroupName(groups, previousSelectedGroup);
     this.proxyGroupsSynced = true;
     this.applySelectedProxyGroup();
   }
@@ -829,11 +852,13 @@ struct Index {
     const nodes: ProxyNode[] = [];
     for (let index = 0; index < group.all.length; index++) {
       const name: string = group.all[index];
+      const delayState: ProxyDelayState = this.getCachedProxyDelayState(name);
       nodes.push({
         name: name,
         meta: `${group.name} · ${group.type}`,
-        delay: this.formatGroupDelay(group, name),
-        selected: name === group.now
+        delay: delayState.delay,
+        selected: name === group.now,
+        status: delayState.status
       });
     }
     this.proxyNodes = nodes;
@@ -850,14 +875,103 @@ struct Index {
     return this.proxyGroups.length > 0 ? this.proxyGroups[0] : undefined;
   }
 
+  private resolvePreferredProxyGroupName(groups: ProxyGroupInfo[], previousSelectedGroup: string): string {
+    if (groups.length === 0) {
+      return '';
+    }
+
+    if (previousSelectedGroup.length > 0 && this.hasProxyGroup(groups, previousSelectedGroup)) {
+      return previousSelectedGroup;
+    }
+
+    if (this.pendingProxyGroup.length > 0 && this.hasProxyGroup(groups, this.pendingProxyGroup)) {
+      return this.pendingProxyGroup;
+    }
+
+    if (this.proxyMode === 'global' && this.hasProxyGroup(groups, 'GLOBAL')) {
+      return 'GLOBAL';
+    }
+
+    const trafficGroup: string = this.findRuleTrafficProxyGroupName(groups);
+    if (trafficGroup.length > 0) {
+      return trafficGroup;
+    }
+
+    if (previousSelectedGroup.length > 0 && this.hasProxyGroup(groups, previousSelectedGroup)) {
+      return previousSelectedGroup;
+    }
+    return groups[0].name;
+  }
+
+  private findRuleTrafficProxyGroupName(groups: ProxyGroupInfo[]): string {
+    const preferredNames: string[] = ['Proxy', 'PROXY', '🚀 节点选择', '节点选择', '自动选择', 'Auto'];
+    for (let preferredIndex = 0; preferredIndex < preferredNames.length; preferredIndex++) {
+      if (this.hasProxyGroup(groups, preferredNames[preferredIndex])) {
+        return preferredNames[preferredIndex];
+      }
+    }
+
+    for (let index = 0; index < groups.length; index++) {
+      if (groups[index].name !== 'GLOBAL') {
+        return groups[index].name;
+      }
+    }
+    return '';
+  }
+
+  private hasProxyGroup(groups: ProxyGroupInfo[], groupName: string): boolean {
+    for (let index = 0; index < groups.length; index++) {
+      if (groups[index].name === groupName) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private findRuntimeProxyGroup(): ProxyGroupInfo | undefined {
+    if (this.proxyMode === 'global') {
+      const globalGroup: ProxyGroupInfo | undefined = this.findProxyGroupByName('GLOBAL');
+      if (globalGroup) {
+        return globalGroup;
+      }
+    }
+
+    const trafficGroupName: string = this.findRuleTrafficProxyGroupName(this.proxyGroups);
+    if (trafficGroupName.length > 0) {
+      const trafficGroup: ProxyGroupInfo | undefined = this.findProxyGroupByName(trafficGroupName);
+      if (trafficGroup) {
+        return trafficGroup;
+      }
+    }
+    return this.findSelectedProxyGroup();
+  }
+
+  private findProxyGroupByName(groupName: string): ProxyGroupInfo | undefined {
+    for (let index = 0; index < this.proxyGroups.length; index++) {
+      if (this.proxyGroups[index].name === groupName) {
+        return this.proxyGroups[index];
+      }
+    }
+    return undefined;
+  }
+
   private selectProxyGroup(groupName: string): void {
     this.selectedProxyGroup = groupName;
     this.applySelectedProxyGroup();
   }
 
   private async selectProxyNode(node: ProxyNode): Promise<void> {
+    const previousName: string = this.getSelectedProxyNodeName();
     this.statusMessage = `正在切换节点：${node.name}`;
     let group: ProxyGroupInfo | undefined = this.findSelectedProxyGroup();
+    if (group) {
+      this.pendingProxyGroup = group.name;
+    }
+    this.pendingProxyName = node.name;
+    this.markSelectedProxyNode(node.name);
+    this.syncHomeRuntimeFields();
+    await this.waitForUiUpdate(0);
+
     if (!group) {
       const ready: boolean = await this.ensureControllerReadyForProxyActions('切换节点');
       if (!ready) {
@@ -873,6 +987,11 @@ struct Index {
 
     const ok: boolean = await MihomoControllerService.selectProxy(group.name, node.name);
     if (!ok) {
+      if (previousName.length > 0 && previousName !== node.name) {
+        this.markSelectedProxyNode(previousName);
+      }
+      this.pendingProxyName = previousName;
+      this.pendingProxyGroup = group.name;
       this.statusMessage = `切换节点失败：${group.name} -> ${node.name}`;
       this.recordLog('warn', this.statusMessage);
       return;
@@ -1071,6 +1190,7 @@ struct Index {
         this.vpnActionText = '连接';
         this.summary = CoreService.createSummary(this.profileState, false);
         this.resetHomeTrafficBaseline();
+        this.clearProxyHealthState();
         this.syncHomeRuntimeFields();
         if (!this.isSpeedTesting && !this.toggling) {
           const version: string = this.controllerStatus.version.length > 0 ? this.controllerStatus.version : 'controller';
@@ -1101,7 +1221,7 @@ struct Index {
 
       if (!this.isSpeedTesting && !this.toggling) {
         const version: string = this.controllerStatus.version.length > 0 ? this.controllerStatus.version : 'controller';
-        this.statusMessage = `已连接 · ${version} · ${connections.length} 连接`;
+        this.statusMessage = `已连接 · ${version} · ${connections.length} 连接${this.formatProxyHealthSuffix()}`;
       }
       if (!this.isSpeedTesting && this.runtimePollTick % 3 === 0) {
         this.refreshControllerProxies();
@@ -1113,10 +1233,12 @@ struct Index {
 
   private handleRuntimeUnavailable(message: string): void {
     TrafficPollerService.stop();
+    this.stopHomeRefreshLoop();
     this.runtimePollTick = 0;
     this.connectedAt = 0;
     this.vpnTunnelActive = false;
     this.resetHomeTrafficBaseline();
+    this.clearProxyHealthState();
     this.runtimeConnections = [];
     this.controllerStatus = { available: false, version: '', message: message, raw: '' };
     this.coreBridgeState = CoreBridgeService.markControllerReady(false, '');
@@ -1306,19 +1428,14 @@ struct Index {
   }
 
   private formatGroupDelay(group: ProxyGroupInfo, name: string): string {
-    for (let index = 0; index < group.history.length; index++) {
-      if (group.now === name && group.history[index].delay > 0) {
-        return `${group.history[index].delay} ms`;
-      }
-    }
-    return name === group.now ? '当前' : '待测';
+    return this.getCachedProxyDelayState(name).delay;
   }
 
   private currentProxyLabel(): string {
     if (!this.isRuntimeConnected()) {
       return '未连接';
     }
-    const group: ProxyGroupInfo | undefined = this.findSelectedProxyGroup();
+    const group: ProxyGroupInfo | undefined = this.findRuntimeProxyGroup();
     if (group && group.now.length > 0) {
       return `${group.name} -> ${group.now}`;
     }
@@ -1876,7 +1993,7 @@ struct Index {
           } else {
             ForEach(this.getVisibleProxyNodes(), (node: ProxyNode) => {
               this.ProxyNodeRow(node)
-            }, (node: ProxyNode) => `${node.name}-${node.delay}-${node.status ? node.status : ''}`)
+            }, (node: ProxyNode) => `${node.name}-${node.delay}-${node.status ? node.status : ''}-${node.selected ? 'selected' : 'normal'}`)
           }
         }
         .padding(12).backgroundColor('#FFFFFF').borderRadius(8).border({ width: 1, color: '#DBE3EF' })
@@ -2184,7 +2301,8 @@ struct Index {
     }
 
     let targetIndexes: number[] = this.getAllProxyNodeIndexes();
-    if (targetIndexes.length === 0) {
+    let targetNodes: ProxyNode[] = this.createProxyNodeSnapshot(targetIndexes);
+    if (targetNodes.length === 0) {
       this.statusMessage = '没有节点可测';
       this.speedTestProgress = '没有节点可测';
       this.speedTestSummary = '没有节点可测';
@@ -2193,8 +2311,8 @@ struct Index {
 
     this.isSpeedTesting = true;
     this.speedTestSummary = '';
-    this.speedTestProgress = `准备测速核心 · ${targetIndexes.length} 个节点`;
-    this.statusMessage = `正在准备测速 ${targetIndexes.length} 个节点...`;
+    this.speedTestProgress = `准备测速核心 · ${targetNodes.length} 个节点`;
+    this.statusMessage = `正在准备测速 ${targetNodes.length} 个节点...`;
     await this.waitForUiUpdate(80);
 
     let tested: number = 0;
@@ -2210,16 +2328,17 @@ struct Index {
       }
 
       targetIndexes = this.getAllProxyNodeIndexes();
-      if (targetIndexes.length === 0) {
+      targetNodes = this.createProxyNodeSnapshot(targetIndexes);
+      if (targetNodes.length === 0) {
         this.speedTestProgress = '没有节点可测';
         this.speedTestSummary = '没有节点可测';
         this.statusMessage = '没有节点可测';
         return;
       }
 
-      const blocked: SpeedTestBlockedState | undefined = this.getSpeedTestBlockedState(targetIndexes.length);
+      const blocked: SpeedTestBlockedState | undefined = this.getSpeedTestBlockedState(targetNodes.length);
       if (blocked) {
-        this.updateVisibleProxyNodeDelay(targetIndexes, blocked.nodeDelay, blocked.nodeStatus);
+        this.updateProxyNodeDelayBatch(this.createDelayUpdates(targetNodes, blocked.nodeDelay, blocked.nodeStatus));
         this.statusMessage = blocked.statusMessage;
         this.speedTestProgress = blocked.progress;
         this.speedTestSummary = blocked.summary;
@@ -2227,33 +2346,29 @@ struct Index {
         return;
       }
 
-      this.speedTestProgress = `测速中 0/${targetIndexes.length} · 0 可达`;
-      this.statusMessage = `正在测速 0/${targetIndexes.length}...`;
-      for (let index = 0; index < targetIndexes.length; index++) {
-        const nodeIndex: number = targetIndexes[index];
-        const node: ProxyNode = this.proxyNodes[nodeIndex];
-        this.updateProxyNodeDelay(nodeIndex, node.name, '测试中...', 'testing');
-      }
+      this.speedTestProgress = `测速中 0/${targetNodes.length} · 0 可达`;
+      this.statusMessage = `正在测速 0/${targetNodes.length}...`;
+      this.updateProxyNodeDelayBatch(this.createDelayUpdates(targetNodes, '测试中...', 'testing'));
 
       await this.waitForUiUpdate(80);
 
       const batchSize: number = 12;
-      for (let offset = 0; offset < targetIndexes.length; offset += batchSize) {
-        const batchIndexes: number[] = [];
+      for (let offset = 0; offset < targetNodes.length; offset += batchSize) {
+        const batchNodes: ProxyNode[] = [];
         const tasks: Promise<number>[] = [];
-        const end: number = offset + batchSize > targetIndexes.length ? targetIndexes.length : offset + batchSize;
+        const end: number = offset + batchSize > targetNodes.length ? targetNodes.length : offset + batchSize;
         for (let cursor = offset; cursor < end; cursor++) {
-          const nodeIndex: number = targetIndexes[cursor];
-          batchIndexes.push(nodeIndex);
-          tasks.push(this.measureProxyNodeDelay(this.proxyNodes[nodeIndex]));
+          const node: ProxyNode = targetNodes[cursor];
+          batchNodes.push(node);
+          tasks.push(this.measureProxyNodeDelay(node));
         }
 
         const delays: number[] = await Promise.all(tasks);
+        const updates: ProxyDelayUpdate[] = [];
         for (let index = 0; index < delays.length; index++) {
-          const nodeIndex: number = batchIndexes[index];
-          const node: ProxyNode = this.proxyNodes[nodeIndex];
+          const node: ProxyNode = batchNodes[index];
           const result = TcpDelayTestService.formatDelay(delays[index]);
-          this.updateProxyNodeDelay(nodeIndex, node.name, result.delay, result.status);
+          updates.push({ name: node.name, delay: result.delay, status: result.status });
           tested = tested + 1;
           if (delays[index] > 0) {
             reachable = reachable + 1;
@@ -2261,10 +2376,12 @@ struct Index {
             timeout = timeout + 1;
           }
         }
-        this.speedTestProgress = '测速中 ' + tested + '/' + targetIndexes.length + ' · ' + reachable + ' 可达 · ' + timeout + ' timeout';
-        this.statusMessage = '测速: ' + tested + '/' + targetIndexes.length + ' (' + reachable + ' 可达)';
+        this.updateProxyNodeDelayBatch(updates);
+        this.speedTestProgress = '测速中 ' + tested + '/' + targetNodes.length + ' · ' + reachable + ' 可达 · ' + timeout + ' timeout';
+        this.statusMessage = '测速: ' + tested + '/' + targetNodes.length + ' (' + reachable + ' 可达)';
+        await this.waitForUiUpdate(0);
       }
-      this.speedTestSummary = '测速完成 ' + tested + '/' + targetIndexes.length + ' · ' + reachable + ' 可达 · ' + timeout + ' timeout';
+      this.speedTestSummary = '测速完成 ' + tested + '/' + targetNodes.length + ' · ' + reachable + ' 可达 · ' + timeout + ' timeout';
       this.speedTestProgress = this.speedTestSummary;
       this.statusMessage = '测速完成: ' + tested + ' 个节点, ' + reachable + ' 可达';
       await this.autoSelectReachableProxyAfterSpeedTest();
@@ -2284,8 +2401,71 @@ struct Index {
       return -1;
     }
 
-    const result: ControllerTextResult = await MihomoControllerService.testDelay(node.name, 5000);
-    return this.parseControllerDelay(result);
+    for (let urlIndex = 0; urlIndex < DELAY_TEST_URLS.length; urlIndex++) {
+      const result: ControllerTextResult = await MihomoControllerService.testDelay(
+        node.name,
+        DELAY_TEST_TIMEOUT_MS,
+        DELAY_TEST_URLS[urlIndex]
+      );
+      const delay: number = this.parseControllerDelay(result);
+      if (delay > 0) {
+        return delay;
+      }
+    }
+    return -1;
+  }
+
+  private async verifySelectedProxyAfterConnection(controllerVersion: string): Promise<void> {
+    const group: ProxyGroupInfo | undefined = this.findRuntimeProxyGroup();
+    const nodeName: string = group && group.now.length > 0 ? group.now : this.getSelectedProxyNodeName();
+    if (nodeName.length === 0) {
+      this.clearProxyHealthState();
+      this.statusMessage = `已连接 · ${controllerVersion} · 未找到当前节点`;
+      this.recordLog('warn', this.statusMessage);
+      return;
+    }
+
+    this.statusMessage = `VPN 隧道已建立，正在检测当前节点：${nodeName}`;
+    this.syncHomeRuntimeFields();
+    const delay: number = await this.measureProxyNodeDelay({
+      name: nodeName,
+      meta: '',
+      delay: '待测',
+      selected: true
+    });
+
+    this.proxyHealthCheckedAt = Date.now();
+    this.proxyHealthNode = nodeName;
+    this.proxyHealthOk = delay > 0;
+    this.proxyHealthDelay = delay > 0 ? delay : 0;
+    if (delay > 0) {
+      this.statusMessage = `已连接 · ${controllerVersion} · 当前节点可达 ${delay} ms`;
+      this.recordLog('info', this.statusMessage);
+      return;
+    }
+
+    this.statusMessage = `VPN 隧道已建立，但当前节点不可达：${nodeName} · 请在代理页重新测速并切换节点`;
+    this.recordLog('warn', this.statusMessage);
+  }
+
+  private clearProxyHealthState(): void {
+    this.proxyHealthCheckedAt = 0;
+    this.proxyHealthOk = false;
+    this.proxyHealthDelay = 0;
+    this.proxyHealthNode = '';
+  }
+
+  private formatProxyHealthSuffix(): string {
+    if (this.proxyHealthCheckedAt <= 0 || this.proxyHealthNode.length === 0) {
+      return '';
+    }
+    if (Date.now() - this.proxyHealthCheckedAt > 120000) {
+      return '';
+    }
+    if (this.proxyHealthOk) {
+      return ` · ${this.proxyHealthNode} ${this.proxyHealthDelay} ms`;
+    }
+    return ` · ${this.proxyHealthNode} 不可达`;
   }
 
   private async autoSelectReachableProxyAfterSpeedTest(): Promise<void> {
@@ -2455,29 +2635,96 @@ struct Index {
   }
 
   private updateProxyNodeDelay(targetIndex: number, targetName: string, delay: string, status: string): void {
+    this.updateProxyNodeDelayBatch([{ name: targetName, delay: delay, status: status }]);
+  }
+
+  private updateVisibleProxyNodeDelay(targetIndexes: number[], delay: string, status: string): void {
+    const updates: ProxyDelayUpdate[] = [];
+    for (let index = 0; index < targetIndexes.length; index++) {
+      const nodeIndex: number = targetIndexes[index];
+      if (nodeIndex >= 0 && nodeIndex < this.proxyNodes.length) {
+        updates.push({ name: this.proxyNodes[nodeIndex].name, delay: delay, status: status });
+      }
+    }
+    this.updateProxyNodeDelayBatch(updates);
+  }
+
+  private updateProxyNodeDelayBatch(updates: ProxyDelayUpdate[]): void {
+    if (updates.length === 0) {
+      return;
+    }
+
+    const updateMap: Record<string, ProxyDelayState> = {};
+    for (let index = 0; index < updates.length; index++) {
+      const update: ProxyDelayUpdate = updates[index];
+      if (update.name.length === 0) {
+        continue;
+      }
+      updateMap[update.name] = {
+        delay: update.delay,
+        status: update.status
+      };
+      this.proxyDelayCache[update.name] = {
+        delay: update.delay,
+        status: update.status
+      };
+    }
+
     const nodes: ProxyNode[] = [];
     for (let index = 0; index < this.proxyNodes.length; index++) {
       const node: ProxyNode = this.proxyNodes[index];
-      if (index === targetIndex && node.name === targetName) {
-        nodes.push(this.copyProxyNodeWithDelay(node, delay, status));
+      const updated: ProxyDelayState | undefined = updateMap[node.name];
+      if (updated) {
+        nodes.push(this.copyProxyNodeWithDelay(node, updated.delay, updated.status));
       } else {
-        nodes.push(this.copyProxyNodeWithDelay(node, node.delay, node.status ? node.status : ''));
+        const cached: ProxyDelayState = this.getCachedProxyDelayState(node.name);
+        nodes.push(this.copyProxyNodeWithDelay(node, cached.delay, cached.status));
       }
     }
     this.proxyNodes = nodes;
   }
 
-  private updateVisibleProxyNodeDelay(targetIndexes: number[], delay: string, status: string): void {
+  private createProxyNodeSnapshot(indexes: number[]): ProxyNode[] {
     const nodes: ProxyNode[] = [];
-    for (let index = 0; index < this.proxyNodes.length; index++) {
-      const node: ProxyNode = this.proxyNodes[index];
-      if (targetIndexes.indexOf(index) >= 0) {
-        nodes.push(this.copyProxyNodeWithDelay(node, delay, status));
-      } else {
-        nodes.push(this.copyProxyNodeWithDelay(node, node.delay, node.status ? node.status : ''));
+    for (let index = 0; index < indexes.length; index++) {
+      const nodeIndex: number = indexes[index];
+      if (nodeIndex < 0 || nodeIndex >= this.proxyNodes.length) {
+        continue;
       }
+      const node: ProxyNode = this.proxyNodes[nodeIndex];
+      nodes.push({
+        name: node.name,
+        meta: node.meta,
+        delay: node.delay,
+        selected: node.selected,
+        status: node.status,
+        server: node.server,
+        port: node.port
+      });
     }
-    this.proxyNodes = nodes;
+    return nodes;
+  }
+
+  private createDelayUpdates(nodes: ProxyNode[], delay: string, status: string): ProxyDelayUpdate[] {
+    const updates: ProxyDelayUpdate[] = [];
+    for (let index = 0; index < nodes.length; index++) {
+      updates.push({ name: nodes[index].name, delay: delay, status: status });
+    }
+    return updates;
+  }
+
+  private getCachedProxyDelayState(name: string): ProxyDelayState {
+    const cached: ProxyDelayState | undefined = this.proxyDelayCache[name];
+    if (cached && cached.delay.length > 0) {
+      return {
+        delay: cached.delay,
+        status: cached.status
+      };
+    }
+    return {
+      delay: '待测',
+      status: 'pending'
+    };
   }
 
   private copyProxyNodeWithDelay(node: ProxyNode, delay: string, status: string): ProxyNode {
