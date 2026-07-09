@@ -158,6 +158,57 @@ SHA256: 2c00b356d7e2a8fefe1295449951cc22a780343ffadcd8aa19daf1e9e5f92b88
 - 首次启动 VPN 时，系统会弹出 VPN 权限确认，需要在手机上手动允许。
 - 请仅导入你有权使用的订阅或本地配置。
 
+## 如何获得有效订阅文件
+
+Clash Harmony 本身不提供代理节点或订阅服务。用户需要自行准备合法、可用、且有权使用的 Clash/mihomo 兼容订阅。
+
+常见获取方式：
+
+- 从你购买或自建的网络代理服务后台获取。通常服务后台会提供“Clash 订阅”、“Clash Meta 订阅”、“mihomo 订阅”或“复制订阅链接”入口。
+- 从企业、学校或实验环境的内部网络管理员处获取。此类配置通常用于内部网络访问、研发测试或合规的远程接入。
+- 自建服务后生成配置。你可以在自己的服务器上部署有权限使用的代理服务，再生成 Clash/mihomo YAML 配置文件。
+- 使用已有的本地 Clash/mihomo 配置文件。如果你已经在电脑端 Clash 客户端里有可用配置，可以导出或找到对应 YAML 文件后导入本 App。
+
+订阅通常有两种形式：
+
+```text
+https://example.com/subscription/your-token
+```
+
+或本地 YAML 文件：
+
+```yaml
+proxies:
+  - name: example-node
+    type: ss
+    server: example.com
+    port: 8388
+    cipher: aes-128-gcm
+    password: your-password
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - example-node
+rules:
+  - MATCH,Proxy
+```
+
+判断订阅是否适合导入：
+
+- 后台明确标注支持 `Clash`、`Clash Meta` 或 `mihomo`。
+- 链接打开后返回的是 YAML 配置，或返回可被转换为 Clash 节点列表的订阅文本。
+- 配置里至少包含 `proxies` 或可解析的节点信息。
+- 节点在其他 Clash/mihomo 客户端中可以正常测速和连接。
+
+安全注意事项：
+
+- 不要使用公开泄露、来历不明或未经授权的订阅链接。
+- 订阅 URL 通常包含 token，等同于账号凭证，不要提交到 GitHub、截图公开或分享给他人。
+- 不要把个人订阅写进仓库、日志或 issue。
+- 如果订阅节点大面积 `timeout`，先确认手机当前网络、运营商线路、订阅是否过期、节点是否在其他客户端可用。
+- 请遵守所在地区法律法规、网络服务条款和组织安全规范。
+
 ## 安装到真机
 
 ### 准备手机
